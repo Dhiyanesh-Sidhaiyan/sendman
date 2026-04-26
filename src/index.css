@@ -1,0 +1,93 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Default to dark to avoid flash of light before JS runs. */
+:root,
+[data-theme="dark"] {
+  --bg: 11 13 16;
+  --bg-panel: 19 22 27;
+  --bg-elev: 26 30 37;
+  --bg-border: 38 43 52;
+
+  --accent: 124 92 255;
+  --accent-dim: 90 68 196;
+
+  --zinc-200: 228 228 231;
+  --zinc-300: 212 212 216;
+  --zinc-400: 161 161 170;
+  --zinc-500: 113 113 122;
+  --zinc-600: 82 82 91;
+
+  --yellow-400: 250 204 21;
+  --yellow-500: 234 179 8;
+  --yellow-600: 202 138 4;
+
+  --red-400: 248 113 113;
+  --red-500: 239 68 68;
+  --red-600: 220 38 38;
+
+  --method-get: 34 197 94;
+  --method-post: 234 179 8;
+  --method-put: 59 130 246;
+  --method-patch: 168 85 247;
+  --method-delete: 239 68 68;
+}
+
+[data-theme="light"] {
+  --bg: 255 255 255;
+  --bg-panel: 250 251 252;
+  --bg-elev: 243 245 247;
+  --bg-border: 226 230 235;
+
+  --accent: 99 79 222;
+  --accent-dim: 124 92 255;
+
+  /* Inverted scale: zinc-200 is now near-black so existing text-zinc-200 stays "default text". */
+  --zinc-200: 24 27 32;
+  --zinc-300: 47 52 60;
+  --zinc-400: 90 96 108;
+  --zinc-500: 130 137 150;
+  --zinc-600: 165 172 185;
+
+  /* Amber for warnings (readable on white) */
+  --yellow-400: 217 119 6;
+  --yellow-500: 202 109 5;
+  --yellow-600: 180 83 9;
+
+  --red-400: 220 38 38;
+  --red-500: 220 38 38;
+  --red-600: 185 28 28;
+
+  /* Methods stay semantic */
+  --method-get: 22 163 74;
+  --method-post: 202 138 4;
+  --method-put: 37 99 235;
+  --method-patch: 147 51 234;
+  --method-delete: 220 38 38;
+}
+
+html, body, #root { height: 100%; margin: 0; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+  background-color: rgb(var(--bg));
+  color: rgb(var(--zinc-200));
+  transition: background-color 0.18s ease, color 0.18s ease;
+}
+input, textarea, [contenteditable] { user-select: text; }
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgb(var(--bg-elev)); border-radius: 5px; }
+::-webkit-scrollbar-thumb:hover { background: rgb(var(--zinc-500) / 0.5); }
+
+.titlebar-drag { -webkit-app-region: drag; }
+.no-drag { -webkit-app-region: no-drag; }
+
+@layer base {
+  button, select, input, textarea, a {
+    transition: background-color 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+  }
+}

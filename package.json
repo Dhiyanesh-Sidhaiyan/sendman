@@ -1,0 +1,68 @@
+{
+  "name": "sendman",
+  "version": "0.1.0",
+  "description": "Sendman — local-first multi-protocol API client (v0.1: HTTP + Runner)",
+  "main": "dist-Sendman/main.js",
+  "author": "Sendman",
+  "license": "MIT",
+  "scripts": {
+    "postinstall": "node scripts/rename-dev-electron.js",
+    "dev": "node scripts/rename-dev-electron.js && concurrently -k -n vite,sendman -c blue,green \"vite\" \"npm:dev:sendman\"",
+    "dev:sendman": "wait-on tcp:5173 && tsc -p Sendman/tsconfig.json && cross-env NODE_ENV=development electron .",
+    "build": "tsc -p Sendman/tsconfig.json && vite build",
+    "dist:mac": "npm run build && electron-builder --mac",
+    "dist:mac:dmg": "npm run build && electron-builder --mac dmg",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@grpc/grpc-js": "^1.14.3",
+    "@grpc/proto-loader": "^0.8.0",
+    "@types/ws": "^8.18.1",
+    "papaparse": "^5.4.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "undici": "^6.19.8",
+    "ws": "^8.20.0",
+    "zustand": "^4.5.5"
+  },
+  "devDependencies": {
+    "@types/papaparse": "^5.3.14",
+    "@types/react": "^18.3.3",
+    "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^4.3.1",
+    "autoprefixer": "^10.4.19",
+    "concurrently": "^8.2.2",
+    "cross-env": "^7.0.3",
+    "electron": "^31.3.1",
+    "electron-builder": "^24.13.3",
+    "postcss": "^8.4.40",
+    "tailwindcss": "^3.4.7",
+    "typescript": "^5.5.4",
+    "vite": "^5.4.0",
+    "wait-on": "^7.2.0"
+  },
+  "build": {
+    "appId": "com.sendman.app",
+    "productName": "Sendman",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "dist-Sendman/**/*",
+      "package.json"
+    ],
+    "mac": {
+      "category": "public.app-category.developer-tools",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
+      ]
+    }
+  }
+}
