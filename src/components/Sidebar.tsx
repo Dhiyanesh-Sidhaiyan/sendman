@@ -39,7 +39,7 @@ export function Sidebar() {
   };
 
   return (
-    <aside className="w-72 bg-bg-panel border-r border-bg-border flex flex-col min-h-0">
+    <aside className="w-full h-full bg-bg-panel flex flex-col min-h-0">
       <div className="flex border-b border-bg-border text-xs">
         {(['cols', 'envs'] as const).map(t => (
           <button key={t}

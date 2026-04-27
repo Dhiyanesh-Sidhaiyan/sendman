@@ -111,6 +111,9 @@ export function RunnerView() {
   const [previewOpen, setPreviewOpen] = useState(false);
   const [retrying, setRetrying] = useState<number | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const [sidebarWidth, setSidebarWidth] = useState(400); // pixels
+  const [isDragging, setIsDragging] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   const retry = async (idx: number) => {
     if (!collection) return;
@@ -143,6 +146,27 @@ export function RunnerView() {
 
   useEffect(() => { setSelected(new Set(collection?.requests.map(r => r.id) ?? [])); }, [collection?.id]);
 
+  // Sidebar resizer
+  useEffect(() => {
+    if (!isDragging) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!containerRef.current) return;
+      const rect = containerRef.current.getBoundingClientRect();
+      const newWidth = e.clientX - rect.left;
+      setSidebarWidth(Math.max(300, Math.min(700, newWidth)));
+    };
+
+    const handleMouseUp = () => setIsDragging(false);
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isDragging]);
+
   const onFile = async (file: File) => {
     setCsvName(file.name);
     const text = await file.text();
@@ -168,17 +192,41 @@ export function RunnerView() {
     setExpanded(null);
     setRunning(true);
 
+    // Safety timeout: auto-reset running state after 10 minutes
+    const safetyTimeout = setTimeout(() => {
+      console.warn('[runner] safety timeout triggered - resetting running state');
+      setRunning(false);
+    }, 600000); // 10 minutes
+
     const runId = uid();
+    let completedViaEvent = false;
+
     const off = window.api.runner.onProgress((msg: RunEvent) => {
       if (msg.runId !== runId) return;
-      if (msg.type === 'iteration') setIterations(prev => [...prev, msg]);
-      else if (msg.type === 'done') { setSummary(msg); setRunning(false); }
+      if (msg.type === 'iteration') {
+        setIterations(prev => [...prev, msg]);
+      } else if (msg.type === 'done') {
+        setSummary(msg);
+        setRunning(false);
+        completedViaEvent = true;
+      }
     });
+
     try {
       await window.api.runner.start({
         runId, requests, rows: csv.rows, baseVars: resolveVars(), delayMs
       });
-    } finally { off(); }
+    } catch (err) {
+      console.error('[runner] execution failed:', err);
+    } finally {
+      clearTimeout(safetyTimeout);
+      off();
+      // Ensure running is false even if 'done' event was missed
+      if (!completedViaEvent) {
+        console.warn('[runner] completed without done event');
+        setRunning(false);
+      }
+    }
   };
 
   if (!collection) {
@@ -202,8 +250,8 @@ export function RunnerView() {
   const failCount = iterations.length - passCount;
 
   return (
-    <div className="flex-1 flex min-h-0">
-      <div className="w-96 border-r border-bg-border flex flex-col min-h-0 overflow-y-auto">
+    <div ref={containerRef} className="flex-1 flex min-h-0">
+      <div style={{ width: `${sidebarWidth}px` }} className="flex-shrink-0 flex flex-col min-h-0 overflow-y-auto border-r border-bg-border bg-bg-panel">
         <div className="px-4 py-3 border-b border-bg-border">
           <div className="text-[11px] uppercase text-zinc-500 tracking-wider mb-1">Collection</div>
           <div className="text-sm font-medium">{collection.name}</div>
@@ -233,7 +281,7 @@ export function RunnerView() {
 
           {csv.headers.length > 0 && (
             <div className="text-[11px] text-zinc-500 mt-2">
-              {csv.rows.length} rows · vars: {csv.headers.map(h => <code key={h} className="text-accent mr-1">{h}</code>)}
+              {csv.rows.length} rows × {csv.headers.length} columns
             </div>
           )}
           {csv.errors.length > 0 && (
@@ -303,9 +351,12 @@ export function RunnerView() {
           </button>
         </div>
       </div>
-
-      <div className="flex-1 flex flex-col min-h-0">
-        <div className="px-4 py-3 border-b border-bg-border flex items-center gap-4 text-xs">
+      <div
+        onMouseDown={() => setIsDragging(true)}
+        className="w-1 bg-bg-border hover:bg-accent cursor-col-resize flex-shrink-0"
+      />
+      <div className="flex-1 flex flex-col min-h-0 bg-bg">
+        <div className="px-4 py-3 border-b border-bg-border flex items-center gap-4 text-xs flex-wrap">
           <span className="text-method-get">{passCount} pass</span>
           <span className="text-method-delete">{failCount} fail</span>
           {summary && <span className="text-zinc-500">total {summary.totalMs} ms</span>}
@@ -325,20 +376,21 @@ export function RunnerView() {
           )}
         </div>
         <div className="flex-1 overflow-auto">
-          <table className="w-full text-xs">
-            <thead className="sticky top-0 bg-bg-panel border-b border-bg-border">
-              <tr className="text-left text-zinc-500">
-                <th className="px-3 py-2 w-8"></th>
-                <th className="px-3 py-2">#</th>
-                <th className="px-3 py-2">Request</th>
-                <th className="px-3 py-2">URL</th>
-                <th className="px-3 py-2">Status</th>
-                <th className="px-3 py-2">Latency</th>
-                <th className="px-3 py-2">Attempts</th>
-                <th className="px-3 py-2">Error</th>
-                <th className="px-3 py-2 w-16"></th>
-              </tr>
-            </thead>
+          <div className="min-w-max">
+            <table className="w-full text-xs">
+              <thead className="sticky top-0 bg-bg-panel border-b border-bg-border z-10">
+                <tr className="text-left text-zinc-500">
+                  <th className="px-3 py-2 w-10 text-center"></th>
+                  <th className="px-3 py-2 w-16">#</th>
+                  <th className="px-3 py-2 min-w-[200px] max-w-[300px]">Request</th>
+                  <th className="px-3 py-2 min-w-[250px] max-w-[400px]">URL</th>
+                  <th className="px-3 py-2 w-20">Status</th>
+                  <th className="px-3 py-2 w-28">Latency</th>
+                  <th className="px-3 py-2 w-24">Attempts</th>
+                  <th className="px-3 py-2 min-w-[200px]">Error</th>
+                  <th className="px-3 py-2 w-28"></th>
+                </tr>
+              </thead>
             <tbody className="font-mono">
               {iterations.map((it, idx) => {
                 const isOpen = expanded === idx;
@@ -350,16 +402,19 @@ export function RunnerView() {
                       onClick={() => expandable && setExpanded(isOpen ? null : idx)}
                       className={`border-b border-bg-border/40 hover:bg-bg-elev/30 ${expandable ? 'cursor-pointer' : ''}`}
                     >
-                      <td className="px-3 py-1.5 text-zinc-500">
+                      <td className="px-3 py-1.5 text-zinc-500 text-center">
                         {expandable ? (isOpen ? '▾' : '▸') : ''}
                       </td>
                       <td className="px-3 py-1.5 text-zinc-500">{it.iteration + 1}</td>
-                      <td className="px-3 py-1.5"><span className="text-zinc-400 mr-2">{it.method}</span>{it.requestName}</td>
-                      <td className="px-3 py-1.5 text-zinc-500 truncate max-w-md">{it.url}</td>
+                      <td className="px-3 py-1.5 truncate" title={`${it.method} ${it.requestName}`}>
+                        <span className="text-zinc-400 mr-2">{it.method}</span>
+                        <span className="text-zinc-200">{it.requestName}</span>
+                      </td>
+                      <td className="px-3 py-1.5 text-zinc-500 truncate" title={it.url}>{it.url}</td>
                       <td className={`px-3 py-1.5 font-bold ${it.ok ? 'text-method-get' : 'text-method-delete'}`}>{it.status || 'ERR'}</td>
                       <td className="px-3 py-1.5 text-zinc-400">{it.latencyMs} ms</td>
                       <td className="px-3 py-1.5 text-zinc-400">{it.attempts}</td>
-                      <td className="px-3 py-1.5 text-method-delete truncate max-w-xs" title={it.error ?? ''}>
+                      <td className="px-3 py-1.5 text-method-delete truncate" title={it.error ?? ''}>
                         {it.error ?? ''}
                       </td>
                       <td className="px-3 py-1.5 text-right">
@@ -375,8 +430,7 @@ export function RunnerView() {
                     </tr>
                     {isOpen && (
                       <tr className={`${it.ok ? 'bg-bg-elev/30' : 'bg-method-delete/5'} border-b border-bg-border/40`}>
-                        <td></td>
-                        <td colSpan={8} className="px-3 py-3 space-y-3">
+                        <td colSpan={9} className="px-3 py-3 space-y-3">
                           {it.error && (
                             <div>
                               <div className="text-[11px] uppercase text-method-delete tracking-wider mb-1">Failure reason</div>
@@ -392,10 +446,24 @@ export function RunnerView() {
                 );
               })}
               {iterations.length === 0 && !running && (
-                <tr><td colSpan={9} className="px-3 py-8 text-center text-zinc-500 text-xs">No run yet.</td></tr>
+                <tr>
+                  <td colSpan={9} className="px-6 py-16 text-center">
+                    <div className="text-zinc-500 text-sm mb-2">No results yet</div>
+                    <div className="text-zinc-600 text-xs">Click "Run" button to execute selected requests</div>
+                  </td>
+                </tr>
+              )}
+              {running && iterations.length === 0 && (
+                <tr>
+                  <td colSpan={9} className="px-6 py-16 text-center">
+                    <div className="text-accent text-sm mb-2">Running...</div>
+                    <div className="text-zinc-500 text-xs">Executing requests, results will appear here</div>
+                  </td>
+                </tr>
               )}
             </tbody>
           </table>
+          </div>
         </div>
       </div>
       {previewOpen && (

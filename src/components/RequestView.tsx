@@ -11,6 +11,7 @@ import { toCurl } from '../lib/curlExport';
 import { GraphQLRequestView } from './GraphQLRequestView';
 import { GrpcRequestView } from './GrpcRequestView';
 import { WebSocketRequestView } from './WebSocketRequestView';
+import { Toast } from './Toast';
 
 const METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'];
 
@@ -43,7 +44,7 @@ export function RequestView() {
   );
   const [tab, setTab] = useState<'params' | 'headers' | 'body' | 'auth' | 'resilience'>('params');
   const [popoverVar, setPopoverVar] = useState<{ name: string; x: number; y: number } | null>(null);
-  const [toast, setToast] = useState<{ kind: 'ok' | 'error'; msg: string } | null>(null);
+  const [toast, setToast] = useState<{ kind: 'success' | 'error' | 'warning' | 'info'; message: string } | null>(null);
   const [splitPos, setSplitPos] = useState(50); // percentage
   const [isDragging, setIsDragging] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -57,12 +58,6 @@ export function RequestView() {
     }
   }, [stored?.id, stored?.protocol]);
 
-  // Toast auto-dismiss
-  useEffect(() => {
-    if (!toast) return;
-    const id = setTimeout(() => setToast(null), 3000);
-    return () => clearTimeout(id);
-  }, [toast]);
 
   // Curl paste handler
   const handleUrlPaste = (text: string): boolean => {
@@ -70,7 +65,7 @@ export function RequestView() {
     if (!/^curl\b/i.test(trimmed)) return false;
     const result = parseCurl(text);
     if (!result.ok) {
-      setToast({ kind: 'error', msg: result.error });
+      setToast({ kind: 'error', message: result.error });
       return true;
     }
     const { req } = result;
@@ -92,17 +87,47 @@ export function RequestView() {
       };
     });
     const note = req.warnings.length ? ` (${req.warnings.length} warning${req.warnings.length > 1 ? 's' : ''})` : '';
-    if (req.warnings.length) console.warn('[curl import]', req.warnings);
-    setToast({ kind: 'ok', msg: `Imported ${req.method} ${shortUrl(req.url)}${note}` });
+    if (req.warnings.length) {
+      console.warn('[curl import]', req.warnings);
+      setToast({ kind: 'warning', message: `Imported ${req.method} ${shortUrl(req.url)}${note}` });
+    } else {
+      setToast({ kind: 'success', message: `Imported ${req.method} ${shortUrl(req.url)}` });
+    }
     return true;
   };
 
-  // Compute derived state
-  const dirty = useMemo(() =>
-    draft && stored && stored.protocol === 'http' && JSON.stringify(draft) !== JSON.stringify(stored), [draft, stored]);
+  // Compute derived state - optimized deep equality check
+  const dirty = useMemo(() => {
+    if (!draft || !stored || stored.protocol !== 'http') return false;
+    // Fast path: reference equality
+    if (draft === stored) return false;
+    // Deep comparison using JSON.stringify (memoized by useMemo)
+    return JSON.stringify(draft) !== JSON.stringify(stored);
+  }, [draft, stored]);
 
-  const vars = resolveVars();
+  const vars = useMemo(() => resolveVars(), [resolveVars]);
   const unresolved = useMemo(() => draft ? findUnresolved(draft, vars) : [], [draft, vars]);
+
+  // Resizer handlers - must be before early returns
+  useEffect(() => {
+    if (!isDragging) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!containerRef.current) return;
+      const rect = containerRef.current.getBoundingClientRect();
+      const newPos = ((e.clientY - rect.top) / rect.height) * 100;
+      setSplitPos(Math.max(20, Math.min(80, newPos)));
+    };
+
+    const handleMouseUp = () => setIsDragging(false);
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isDragging]);
 
   // Route to protocol-specific views AFTER all hooks are declared
   if (stored?.protocol === 'graphql') return <GraphQLRequestView />;
@@ -120,46 +145,21 @@ export function RequestView() {
   const update = (patch: Partial<HttpRequestDef>) => setDraft({ ...draft, ...patch });
 
   const copyCurl = async () => {
-    const curlCmd = toCurl(draft, vars);
-    await navigator.clipboard.writeText(curlCmd);
-    setToast({ kind: 'ok', msg: 'Copied curl command' });
+    try {
+      const curlCmd = toCurl(draft, vars);
+      await navigator.clipboard.writeText(curlCmd);
+      setToast({ kind: 'success', message: 'Copied curl command to clipboard' });
+    } catch (err) {
+      setToast({ kind: 'error', message: 'Failed to copy to clipboard. Please check permissions.' });
+    }
   };
   const response = responses[draft.id];
   const isLoading = response && 'loading' in response;
 
-  // Resizer handlers
-  const handleMouseDown = () => setIsDragging(true);
-  const handleMouseUp = () => setIsDragging(false);
-  const handleMouseMove = (e: MouseEvent) => {
-    if (!isDragging || !containerRef.current) return;
-    const rect = containerRef.current.getBoundingClientRect();
-    const newPos = ((e.clientY - rect.top) / rect.height) * 100;
-    setSplitPos(Math.max(20, Math.min(80, newPos)));
-  };
-
-  useEffect(() => {
-    if (isDragging) {
-      window.addEventListener('mousemove', handleMouseMove);
-      window.addEventListener('mouseup', handleMouseUp);
-      return () => {
-        window.removeEventListener('mousemove', handleMouseMove);
-        window.removeEventListener('mouseup', handleMouseUp);
-      };
-    }
-  }, [isDragging]);
-
   return (
     <div className="flex-1 flex flex-col min-h-0 relative">
       {toast && (
-        <div
-          onClick={() => setToast(null)}
-          className={`fixed top-14 right-4 z-50 px-3 py-2 rounded text-xs border shadow-lg cursor-pointer hover:opacity-80 transition-opacity ${
-            toast.kind === 'ok'
-              ? 'bg-method-get/10 border-method-get/40 text-method-get'
-              : 'bg-method-delete/10 border-method-delete/40 text-method-delete'
-          }`}>
-          {toast.msg}
-        </div>
+        <Toast kind={toast.kind} message={toast.message} onClose={() => setToast(null)} />
       )}
       <div className="px-4 py-3 border-b border-bg-border flex items-center gap-2">
         <input
@@ -230,7 +230,7 @@ export function RequestView() {
           {tab === 'resilience' && <ResilienceEditor r={draft.resilience} onChange={resilience => update({ resilience })} />}
         </div>
         <div
-          onMouseDown={handleMouseDown}
+          onMouseDown={() => setIsDragging(true)}
           className="h-1 bg-bg-border hover:bg-accent cursor-row-resize flex-shrink-0"
         />
         <div className="flex-1 min-h-0">
