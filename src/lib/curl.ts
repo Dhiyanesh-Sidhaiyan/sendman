@@ -5,7 +5,7 @@ export interface ParsedCurl {
   url: string;
   headers: KV[];
   body: { type: 'none' | 'json' | 'text' | 'form'; content: string };
-  auth: { type: 'none' | 'basic'; username?: string; password?: string };
+  auth: { type: 'none' | 'basic' | 'bearer'; username?: string; password?: string; token?: string };
   warnings: string[];
 }
 
@@ -252,9 +252,18 @@ export function parseCurl(input: string): CurlParseResult {
 
   if (!url) return { ok: false, error: 'No URL found in curl command' };
 
-  // Strip Authorization header if -u was used (curl would set it itself).
+  // Extract Bearer token from Authorization header if present
+  const authHeader = headers.find(h => h.key.toLowerCase() === 'authorization');
+  if (authHeader && auth.type === 'none') {
+    const match = /^Bearer\s+(.+)$/i.exec(authHeader.value.trim());
+    if (match) {
+      auth = { type: 'bearer', token: match[1] };
+    }
+  }
+
+  // Strip Authorization header if auth was extracted (Basic or Bearer).
   let finalHeaders = headers;
-  if (auth.type === 'basic') {
+  if (auth.type === 'basic' || auth.type === 'bearer') {
     finalHeaders = headers.filter(h => h.key.toLowerCase() !== 'authorization');
   }
 

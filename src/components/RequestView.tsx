@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useRef } from 'react';
 import { useStore } from '../store';
 import type { KV, RequestDef, HttpRequestDef } from '../types';
 import { ResponsePanel } from './ResponsePanel';
@@ -44,6 +44,9 @@ export function RequestView() {
   const [tab, setTab] = useState<'params' | 'headers' | 'body' | 'auth' | 'resilience'>('params');
   const [popoverVar, setPopoverVar] = useState<{ name: string; x: number; y: number } | null>(null);
   const [toast, setToast] = useState<{ kind: 'ok' | 'error'; msg: string } | null>(null);
+  const [splitPos, setSplitPos] = useState(50); // percentage
+  const [isDragging, setIsDragging] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   // Sync draft with stored HTTP request
   useEffect(() => {
@@ -71,14 +74,23 @@ export function RequestView() {
       return true;
     }
     const { req } = result;
-    setDraft(d => d && ({
-      ...d,
-      method: req.method,
-      url: req.url,
-      headers: mergeHeaders(d.headers, req.headers),
-      body: req.body.type === 'none' ? d.body : { type: req.body.type, content: req.body.content },
-      auth: req.auth.type === 'none' ? d.auth : { type: 'basic', username: req.auth.username, password: req.auth.password },
-    }));
+    setDraft(d => {
+      if (!d) return null;
+      let newAuth = d.auth;
+      if (req.auth.type === 'basic') {
+        newAuth = { type: 'basic', username: req.auth.username ?? '', password: req.auth.password ?? '' };
+      } else if (req.auth.type === 'bearer') {
+        newAuth = { type: 'bearer', token: req.auth.token ?? '' };
+      }
+      return {
+        ...d,
+        method: req.method,
+        url: req.url,
+        headers: mergeHeaders(d.headers, req.headers),
+        body: req.body.type === 'none' ? d.body : { type: req.body.type, content: req.body.content },
+        auth: newAuth,
+      };
+    });
     const note = req.warnings.length ? ` (${req.warnings.length} warning${req.warnings.length > 1 ? 's' : ''})` : '';
     if (req.warnings.length) console.warn('[curl import]', req.warnings);
     setToast({ kind: 'ok', msg: `Imported ${req.method} ${shortUrl(req.url)}${note}` });
@@ -115,14 +127,37 @@ export function RequestView() {
   const response = responses[draft.id];
   const isLoading = response && 'loading' in response;
 
+  // Resizer handlers
+  const handleMouseDown = () => setIsDragging(true);
+  const handleMouseUp = () => setIsDragging(false);
+  const handleMouseMove = (e: MouseEvent) => {
+    if (!isDragging || !containerRef.current) return;
+    const rect = containerRef.current.getBoundingClientRect();
+    const newPos = ((e.clientY - rect.top) / rect.height) * 100;
+    setSplitPos(Math.max(20, Math.min(80, newPos)));
+  };
+
+  useEffect(() => {
+    if (isDragging) {
+      window.addEventListener('mousemove', handleMouseMove);
+      window.addEventListener('mouseup', handleMouseUp);
+      return () => {
+        window.removeEventListener('mousemove', handleMouseMove);
+        window.removeEventListener('mouseup', handleMouseUp);
+      };
+    }
+  }, [isDragging]);
+
   return (
     <div className="flex-1 flex flex-col min-h-0 relative">
       {toast && (
-        <div className={`fixed top-14 right-4 z-50 px-3 py-2 rounded text-xs border shadow-lg ${
-          toast.kind === 'ok'
-            ? 'bg-method-get/10 border-method-get/40 text-method-get'
-            : 'bg-method-delete/10 border-method-delete/40 text-method-delete'
-        }`}>
+        <div
+          onClick={() => setToast(null)}
+          className={`fixed top-14 right-4 z-50 px-3 py-2 rounded text-xs border shadow-lg cursor-pointer hover:opacity-80 transition-opacity ${
+            toast.kind === 'ok'
+              ? 'bg-method-get/10 border-method-get/40 text-method-get'
+              : 'bg-method-delete/10 border-method-delete/40 text-method-delete'
+          }`}>
           {toast.msg}
         </div>
       )}
@@ -186,15 +221,21 @@ export function RequestView() {
         ))}
       </div>
 
-      <div className="flex-1 grid grid-rows-2 min-h-0">
-        <div className="overflow-y-auto p-4 border-b border-bg-border">
+      <div ref={containerRef} className="flex-1 flex flex-col min-h-0">
+        <div className="overflow-y-auto p-4 border-b border-bg-border" style={{ height: `${splitPos}%` }}>
           {tab === 'params' && <KVEditor rows={draft.params} onChange={params => update({ params })} placeholderKey="key" />}
           {tab === 'headers' && <KVEditor rows={draft.headers} onChange={headers => update({ headers })} placeholderKey="header" />}
           {tab === 'body' && <BodyEditor body={draft.body} onChange={body => update({ body })} unresolvedNames={unresolved.map(u => u.name)} />}
           {tab === 'auth' && <AuthEditor auth={draft.auth} onChange={auth => update({ auth })} />}
           {tab === 'resilience' && <ResilienceEditor r={draft.resilience} onChange={resilience => update({ resilience })} />}
         </div>
-        <ResponsePanel response={response} />
+        <div
+          onMouseDown={handleMouseDown}
+          className="h-1 bg-bg-border hover:bg-accent cursor-row-resize flex-shrink-0"
+        />
+        <div className="flex-1 min-h-0">
+          <ResponsePanel response={response} />
+        </div>
       </div>
 
       {popoverVar && (
@@ -283,8 +324,8 @@ function BodyEditor({ body, onChange, unresolvedNames }: {
     : '';
 
   return (
-    <div className="space-y-2">
-      <div className="flex gap-1 text-xs items-center">
+    <div className="flex flex-col h-full gap-2">
+      <div className="flex gap-1 text-xs items-center flex-shrink-0">
         {(['none', 'json', 'xml', 'text', 'form'] as const).map(t => (
           <button key={t} onClick={() => { setError(null); onChange({ ...body, type: t }); }}
             className={`px-3 py-1 rounded uppercase ${body.type === t ? 'bg-accent text-white' : 'bg-bg-elev text-zinc-400 hover:text-zinc-200'}`}>

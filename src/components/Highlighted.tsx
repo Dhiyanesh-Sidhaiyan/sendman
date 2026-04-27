@@ -34,7 +34,7 @@ function VarBadge({ name, raw, onClick }: VarBadgeProps) {
     <span
       onClick={onClick}
       title={resolved ? `${name} = ${value}` : `${name} is not defined — click to set`}
-      className={`cursor-pointer rounded px-0.5 border ${cls}`}
+      className={`cursor-pointer rounded px-0.5 border pointer-events-auto ${cls}`}
     >{raw}</span>
   );
 }
@@ -92,7 +92,7 @@ export function HighlightedField({ value, onChange, placeholder, className, onPa
           className="absolute inset-0 px-3 py-2 text-sm font-mono pointer-events-none flex items-center"
           aria-hidden
         >
-          <div className="pointer-events-auto whitespace-pre overflow-hidden">
+          <div className="whitespace-pre overflow-hidden">
             <HighlightedOverlay value={value} />
           </div>
         </div>
@@ -121,7 +121,7 @@ export function HighlightedTextarea({ value, onChange, placeholder, className }:
   };
 
   return (
-    <div className="relative">
+    <div className="relative flex-1">
       <textarea
         ref={taRef}
         value={value}
@@ -131,7 +131,7 @@ export function HighlightedTextarea({ value, onChange, placeholder, className }:
         onScroll={onScroll}
         spellCheck={false}
         placeholder={placeholder}
-        className={`relative w-full h-48 bg-bg-elev border border-bg-border rounded p-2 text-xs font-mono focus:outline-none focus:border-accent resize-none ${focused || !value ? '' : 'text-transparent caret-zinc-200'} ${className ?? ''}`}
+        className={`w-full h-full bg-bg-elev border border-bg-border rounded p-2 text-xs font-mono focus:outline-none focus:border-accent resize-none ${focused || !value ? '' : 'text-transparent caret-zinc-200'} ${className ?? ''}`}
       />
       {!focused && value && (
         <div
@@ -139,9 +139,7 @@ export function HighlightedTextarea({ value, onChange, placeholder, className }:
           className="absolute inset-0 p-2 text-xs font-mono pointer-events-none overflow-auto whitespace-pre-wrap break-all"
           aria-hidden
         >
-          <div className="pointer-events-auto">
-            <HighlightedOverlay value={value} />
-          </div>
+          <HighlightedOverlay value={value} />
         </div>
       )}
     </div>
